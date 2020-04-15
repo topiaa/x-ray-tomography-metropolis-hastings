@@ -1,0 +1,464 @@
+\documentclass[12pt,a4paper,leqno]{report}
+
+\usepackage[ansinew]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[finnish]{babel}
+\usepackage{amsthm}
+\usepackage{amsfonts}         
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{listings}
+\usepackage{graphicx}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\C}{\mathbb{C}}
+\newcommand{\Q}{\mathbb{Q}}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\No}{\mathbb{N}_0}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\diam}{\operatorname{diam}}
+\newcommand{\indept}{\perp\!\!\!\perp}
+\newcommand{\argmin}{\operatornamewithlimits{argmin}}
+\newcommand{\argmax}{\operatornamewithlimits{argmax}}
+
+\theoremstyle{plain}
+\newtheorem{lause}[equation]{Lause}
+\newtheorem{lem}[equation]{Lemma}
+\newtheorem{prop}[equation]{Propositio}
+\newtheorem{kor}[equation]{Korollaari}
+
+\theoremstyle{definition}
+\newtheorem{maar}[equation]{Määritelmä}
+\newtheorem{konj}[equation]{Konjektuuri}
+\newtheorem{esim}[equation]{Esimerkki}
+
+\theoremstyle{remark}
+\newtheorem{huom}[equation]{Huomautus}
+
+\pagestyle{plain}
+\setcounter{page}{1}
+\addtolength{\hoffset}{-1.15cm}
+\addtolength{\textwidth}{2.3cm}
+\addtolength{\voffset}{0.45cm}
+\addtolength{\textheight}{-0.9cm}
+
+\title{Bayesin Inversio ja Metropolis-Hastings -algoritmi}
+\author{Topias Tolonen}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents{}
+
+\chapter{Johdanto}\label{johd}
+
+Tässä tutkielmassa esittelen Bayesiläistä tilastotiedettä, lineaarisia inversio-ongelmia ja Metropolis-Hastings -algoritmia. Kerron miten Bayesiläista tilastotiedettä käytetään inversio-ongelmien ratkaisemisessa ja teen käytännön esimerkin reaalidatalla tästä, käyttäen Metropolis-Hastings-algoritmia. Algoritmi laskee 180 kuvasta tehdyn sinogrammin perusteella tomografialeikkauksen parsasta Metropolis-Hastings-algoritmilla käyttäen sekä TV- että Gaussista prioria. Algoritmiin liittyen alustan teorian Markovin ketjuista Metropolis-Hastingsin perusteluun, ja lopulta käytän esimerkkiä havainnollistamaan esiteltyä teoriaa. Esimerkissä generoin yli 10000 samplea pitkän Markovin ketjun lineaaristen inversio-ongelmien mukaisen posteriorijakauman mukaisesti, jossa jokainen ketjun tila on $1024$ pitkä vektori joka voidaan lukea $32\times 32$ kokoisena kuvana. Lopulta lasken saadusta ketjusta CM-estimaatin, joka toimii halutun posteriorijakauman moodina ja siten kuva-estimaattina tomografiakuvalle. 
+
+Tekstissä johdatellaan lukija Bayesiläisen tilastotieteen kautta inversio-ongelmiin, mutta esitietoina lukijan on syytä osata todennäköisyyslaskennan peruskäsitteet, esimerkiksi Kolmogorovin aksioomat, satunnaismuuttujien ja niihin liittyvien tiheys- ja kertymäfunktioiden ominaisuudet, kuten esimerkisi Tuomisen kirjassa \cite{Tuo} on esitetty. Kuitenkin käyn läpi osan olennaisimmista määritelmistä ja tuloksista mielekkään kokonaisuuden saamiseksi.
+
+Ensimmäisessä kappaleessa alustan todennäköisyyslaskenta- ja tilastotiedekoneiston tutkielmalle. Tutkielmassa niitä käytetään Markovin ketjujen muodostamiseen, joita puolestaan käytetään inversio-ongelmien ratkaisuun. Kerron inversio-ongelmiin liittyvistä periaatteista ja ongelmista yleisesti, sekä nidon yhteen Bayesiläisen tilastotieteen niiden ratkaisemisen kannalta. Kappaleessa esitelty teoria perustuu lähteisiin \cite{Siltanen}, \cite{CalSom}, \cite{KaiSom}, \cite{Durrett} ja \cite{Tuo}.
+
+Bayesiläiset inversio-ongelmat tarvitsevat algoritmeja ja numeerista tarkastelua ollakseen hyödyllisiä: usein analyyttisesti saatua posteriorijakaumaa on vaikea käsitellä, ja arpomalla posteriorijakauman mukaisia tiloja Markovin ketjuun saamme helposti käsiteltävän, numeerisen ketjun jakaumalle. Toinen kappale pohjustaa teoriaa Markovin ketjuihin ja perustelee Metropolis-Hastingsin mielekkyyden, ja viittaan tässä pääasiassa lähteisiin \cite{Dean}, \cite{Durrett}, \cite{CalSom} ja \cite{KaiSom}.
+
+Viimeisessä kappaleessa kerron tarkemmin käytänön koodista, jolla toisessa kappaleessa luotu Metropolis-Hastings saadaan yhdistettyä reaalimaailman esimerkkiin. Kappaleessa vertailen tuloksia eri priorivalintojen välillä ja valoitan testiasetelmaa jo esiteltyjen teorioiden valossa.
+
+\chapter{Johdatus Bayesiläiseen inversioon}\label{johdbayes}
+
+Jotta voisimme puhua Bayesin inversiosta, meidän täytyy rakentaa todennäköisyslaskennallinen koneisto. Tässä kappaleessa kerron Bayesiläisen tilastotieteen perusteet ja matkalla rakennan  siihen tarvittavan matemaattisen koneiston todennäköisyyslaskennan ja matriisilaskennan keinoin. 
+
+\section{Todennäköisyys- ja matriisilaskentaa}\label{tn}
+Määrittelen aluksi todennäköisyysavaruuden, jonka jälkeen esittelen tutkielman kannalta hyödyllisiä todennäköisyyslaskennan tuloksia.
+
+\begin{maar}
+Olkoon $\Omega$ epätyhjä joukko. Tällöin perusjoukon $\Omega$ \emph{sigma-algebra} on joukko $\mathcal{F}$, jolle pätee
+\begin{enumerate}
+\item $\emptyset\in\mathcal{F}$
+\item jos $A\in\mathcal{F}$, niin $\Omega\backslash A\in\mathcal{F}$
+\item jos $A_i\in\mathcal{F}$ kaikilla $i\in\N$, niin $\bigcup _{i\in\N}A_{i}\in {\mathcal {F}}$, missä $\N$ on numeroituva joukko.
+\end{enumerate}
+\end{maar}
+
+\begin{maar}
+Olkoon $\Omega$ perusjoukko, ja $\mathcal{F}$ sen sigma-algebra. Tällöin kuvaus $P: \mathcal{F} \mapsto [0,1]$ on \emph{todennäköisyysmitta}, mikäli sille pätee
+\begin{enumerate}
+\item $P(\emptyset) = 0$
+\item jos $A_i\in\mathcal{F}$,\:$i\in\N$ ovat erillisiä, niin $P \left(\bigcup _{i\in \N }A_{i}\right)=\sum _{i\in \N }P (A_{i})$
+\item $P(\Omega) = 1$.
+\end{enumerate}
+\end{maar}
+
+
+Nyt triplettiä $(\Omega,\mathcal{F},P)$ kutsutaan todennäköisyysavaruudeksi. Otetaan tämä todennäköisyysavaruus tutkielman pohjaksi.
+
+Tarkastellaksemme myöhemmin esiintyviä jakaumia tarvitsemme satunnaismuuttujan käsitteen, tietoa niiden riippumattomuudesta ja tunnusluvuista. Ennen tätä tarvitsemme vielä Borel-joukon käsitteen.
+
+\begin{maar}\label{borel} Olkoon $\mathcal{T}$ \: $\R^n$:n avointen osajoukkojen kokoelma. Tällöin joukkokokoelma \emph{Borelin perheen}
+\begin{equation}
+{\displaystyle \operatorname {\mathcal{B}=\mathcal{B}(\R^n)}=\bigcap \{{\mathcal {F}}\subset 2^{\R^n}:{\mathcal {F}}{\mbox{ on sigma-algebra, }}{\mathcal {T}}\subset {\mathcal {F}}\}}
+\end{equation}
+alkioita kutsutaan \emph{Borel-joukoiksi.} $\mathcal{B}$ on siis pienin niistä $\R^n$:n $\sigma$-algebroista, jotka sisältävät $\R^n$:n avoimet osajoukot.
+\end{maar}
+
+Satunnaismuuttujaksi kutsutaan kuvausta, joka liittää perusjoukon $\Omega$ kaikkiin alkeistapauksiin jonkin reaalilukuarvon. Hieman teknisemmin, reaaliarvoinen kuvaus $X(\omega):\Omega \rightarrow \R$ on satunnaismuuttuja, jos jokaiselle $B\in\mathcal{B}$ pätee
+\begin{equation}
+X^{-1}(B) = \lbrace \omega : X(\omega) \in B \rbrace \in\mathcal{F}.
+\end{equation}
+Nyt kun tiedämme mistä on kyse, voimme lähteä tarkastelemaan satunnaismuuttujien ominaisuuksia.
+
+\begin{maar}\label{riippmaar}
+Satunnaismuuttujat $X$ ja $Y$ ovat \emph{riippumattomia}, mikäli kaikille Borel-joukoille $B_1$ ja $B_2$ pätee yhtälö
+\begin{equation}
+P({X\in B_1}\cap{Y\in B_2}) = P({X\in B_1})P({Y\in B_2}).
+\end{equation}
+Tapahtumia $A,B \in \mathcal{F}$ sanotaan riippumattomiksi, jos indikaattorifunktiot $1_A$ ja $1_B$ ovat riippumattomia. Tämä ehto esitetään usein muodossa 
+\begin{equation}
+P(A\cap B) = P(A)P(B)
+\end{equation}
+ja tällöin merkitsemme $A\indept B$. Jos $A$ ja $B$ eivät ole riippumattomia, niin
+\begin{equation}\label{riippuva}
+P(A\cap B) = P(A|B)P(B),
+\end{equation}
+missä $P(A|B)$ on todennäköisyys tapahtumalle A \emph{ehdolla}, että tapahtuma B pätee.
+\end{maar}
+
+Yhtälöstä \ref{riippuva} nähdään helposti, että \emph{ehdollinen todennäköisyys} $P(A|B)$ voidaan ilmaista muodossa
+\begin{equation}\label{bayes}
+P(A|B) = \frac{P(A\cap B)}{P(A)} = \frac{P(B|A)P(A)}{P(B)}.
+\end{equation}
+Yhtälöä \ref{bayes} kutsutaan \emph{Bayesin kaavaksi}. 
+
+Olkoon nyt $X_1, ... , X_n \indept$ jono riippumattomia satunnaismuuttujia, jotka noudattavat samaa todennäköisyysjakaumaa parametrilla $\theta\in\Theta$, missä $\Theta$ on mahdollisesti moniulotteinen parametriavaruus. Merkitään satunnaismuuttujan $X_i$ tiheysfunktiota $f_{Xi}(x_i | \theta)$ kaikilla $i\in 1,....n$.
+
+\begin{maar}\label{odotusarvo}
+Satunnaismuuttujan $X$ \emph{odotusarvo} määritellään integraalilla
+\begin{equation}
+E(X) =\int_{\Omega} X dP =  \int^{+\infty}_{-\infty} f(x | \theta) \, dx,
+\end{equation}
+mikäli kyseinen integraali on olemassa. Lisäksi satunnaismuuttujien $X$ ja $Y$ välinen \emph{kovarianssi} määritellään myös odotusarvon avulla seuraavasti:
+\begin{equation}
+cov(X,Y) = E((X-E(X))(Y-E(Y)) = E(XY) - E(X)E(Y).
+\end{equation}
+Satunnaismuuttujan $X$ välistä kovarianssia itsensä kanssa kutsutaan satunnaismuuttujan \emph{kovarianssimatriisiksi} $Cov(X) = cov(X,X)$.
+\end{maar}
+
+Luonnollisesti odotusarvon ja kovarianssin määritelmät ovat helposti yleistettävissä korkeampiin ulottuvuuksiin. Tällöin esimerkiksi vektorille $\textbf{X}=(X_1,...X_n)$ pätee $E(\textbf{X}) = (E(X_1),...,E(X_n)).$
+
+Muodostaaksemme esimerkiksi moniulotteisten jakaumien tiheysfunktioita, tarvitsemme matriisin kääntyvyyttä ja muita matriisilaskennan perusominaisuuksia. Matriisin $A$ \emph{transpoosiksi} kutsutaan sellaista matriisia $A^\prime$, joka on muodostettu heijastamalla $A$ sen päädiagonaalin suhteen. Neliömatriisi $A\in\R^{n\times n}$ on \emph{kääntyvä}, jos sille on olemassa sellainen $A^{-1}$ jolle $AA^{-1}=I$, missä $I$ on $\R^{n\times n}$-ulotteinen yksikkömatriisi.
+
+\begin{maar}\label{posdef}
+Olkoon $x\in\R^n$. Tällöin matriisi $A\in\R^{nxn}$ on \emph{positiivisesti definiitti}, jos kaikille $x\neq0$ pätee
+\begin{equation}
+x^\prime A x > 0.
+\end{equation}
+\end{maar}
+
+\begin{lause}
+Jos matriisi $A\in\R^{nxn}$ on positiivisesti definiitti, niin se on kääntyvä.
+
+\begin{proof} Positiivisesti definiitin matriisin kaikki ominaisarvot ovat positiivisia, jolloin $0$ ei ole matriisin $A$ ominaisarvo. Tästä seuraa, että yhtälöryhmällä $Ax=0$ ei ole epätriviaaleja ratkaisuja, jolloin $A$ on kääntyvä.
+\end{proof}
+\end{lause}
+
+Jatkossa oletamme, että käyttämämme kovarianssimatriisit Gaussisille satunnaismuuttujille ovat positiivisesti definiittejä ja siten kääntyviä. Tällöin esimerkiksi multinormaalijakauma tiheysfunktio on hyvin määritelty.
+
+\section{Bayesiläinen tilastotiede}\label{baypaat}
+
+Tarkastellaan seuraavaa testiasetelmaa: arvomme $n\in\R$ kappaletta riippumattomia satunnaismuuttujia $X_1, ..., X_n := \textbf{X}$, jotka noudattavat samaa todennäköisyysjakaumaa parametrilla $\theta\in\Theta$. Suoritettuamme testin saamme dataa $x$ testin lopputuloksesta. Bayesiläisessä tilastotieteessä mallin parametrin $\theta$ oletetaan olevan satunnainen, jonka todennäköisin arvo kiinnostaa meitä.
+
+\emph{Priorijakaumaksi} kutsutaan sitä todennäköisyysjakaumaa, joka kuvaa käsitystämme parametrin $\theta$ jakaumasta ennen uutta dataa eli ennen testitulosten saapumista. Merkitään priorijakauman tiheysfunktiota $\pi_\theta(\theta)$. Kutsumme \emph{uskottavuusfunktioksi} $\pi_{like}(x | \theta)$ tiheysfunktiota, joka kuvaa havaitun aineiston $x$ todennäköisyyttä riippuen parametrista $\theta$. \emph{Posteriorijakauma} $\pi_{post}(\theta | x)$ on todennäköisyysjakauma, joka kuvaa parametrin $\theta$ todennäköisyysjakaumaa, jossa priorijakauman ennakkotieto on päivitetty havaitulla aineistolla. Posteriorijakauma saadaan laskettua esittämällä Bayesin kaava \ref{bayes} edellä mainittujen tiheysfunktioiden avulla:
+
+\begin{equation}
+\pi_{post}(\theta | x) = \frac{\pi_{like}(x | \theta) \pi_\theta(\theta)}{\pi_\textbf{X}(x)},
+\end{equation}
+
+missä $\pi_\textbf{X}(x)$ on havaittuun aineistoon $x$ viittaava tiheysfunktio, mallin parametrista riippumaton vakio.
+
+Bayesin tilastotieteessä jätetään yleensä vakio $\pi_\textbf{X}(x)$ huomiotta: se voi olla jopa numeerisesti hyvin vaikea laskea. Tällöin yleensä merkitään
+
+\begin{equation}\label{bayespropto}
+\pi_{post}(\theta | x) \propto \pi_{like}(x | \theta) \pi_\theta(\theta).
+\end{equation}
+
+Huomion arvoista on, että yhtälöt $\pi_{like}(x | \theta) \pi_\theta(\theta)$ ja $\frac{\pi_{like}(x | \theta) \pi_\theta(\theta)}{\pi_\textbf{X}(x)}$ maksimoituvat samassa pisteessä. Bayesin tilastotieteessä olemme kiinnostuneita parametrin $\theta$ todennäköisimmistä arvoista. Usein posteriorijakauman hyödyllisintä arvoa esimoidaan kahdella tavalla. Ensimmäinen näistä on \emph{Maximum a Posteriori (MAP) estimaatti}. Olettaen posteriorijakauma $\pi_{post}(\theta | x)$ tunnetuksi jollain havaitulla datalla $x\in\R^n$, MAP-estimaatti $\theta_{MAP}$ toteuttaa ehdon
+
+\begin{equation}
+\theta_{MAP} = \argmax_{x\in\R^n} \pi_{post}(\theta | x),
+\end{equation}
+
+mikäli maksimi löytyy parametriavaruudesta. Tämä estimaatti ei ole välttämättä yksilöllinen, ja estimaatin löytämisessä voi esiintyä ongelmia laskentatehon kanssa.
+
+Toinen yleinen estimaatti on niin sanottu \emph{conditional mean (CM) estimaatti}
+
+\begin{equation}
+\theta_{CM} = E\pi_{post}(\theta | x),
+\end{equation}
+
+mikäli odotusarvo $E(\theta | x)$ on olemassa.
+
+\section{Lineaariset inversio-ongelmat}
+Tutkielman keskeisessä tarkastelussa on lineaarinen inversio-ongelma 
+
+\begin{equation}\label{lininv}
+M = AX + \epsilon,
+\end{equation}
+
+missä $M\in\R^k$ kuvaa havaittua mittausdataa, $X\in\R^n$ on malli reaalimaailman ilmiöstä, $A\in\R^{k\times n}$ on mittausprosessin kerroinmatriisi ja $\epsilon\sim\mathcal{N}(0,\Gamma)$ on Gaussinen satunnaismuuttuja kovarianssimatriisilla $\Gamma = Cov(\epsilon)$, joka kuvaa mittausasetelman melua eli mittauksessa syntynyttä virhettä. 
+
+\emph{Inversio-ongelmat} ovat ongelmia, joissa päättelyketju ongelmasta ratkaisuun on päinvastainen kuin ns. suorissa ongelmissa. Jos ajattelemme esimerkiksi kappaleen \ref{baypaat} testausasetelmaa, niin inversio-ongelmissa haluamme selvittää mittausdatasta alkuperäisen testausasetelman, eli ikään kuin kulkea kausaliteettia vastaan. Käyttäen Jacques Hadamardin (1865-1963) kuvausta hyvin määritellystä ongelmasta voimme määritellä yleisen inversio-ongelman.
+
+Ongelma on \emph{hyvin määritelty}, jos seuraavat kolme ehtoa pätevät:
+\begin{enumerate}
+\item Ongelmalla on ratkaisu,
+\item ratkaisu on olemassa yksikäsitteisesti ja
+\item ratkaisu riippuu jatkuvasti datasta.
+\end{enumerate}
+Inversio-ongelmaksi kutsutaan ongelmaa, jolla ainakin yksi ehdoista 1.-3. ei päde. Huomataan, että lineaarisen inversio-ongelman \ref{lininv} tapauksessa ainakin yksi ehdoista ei päde. Nopeasti huomaamme, että heuristinen ratkaisu yhtälölle \ref{lininv}
+\begin{equation}\label{heurinv}
+M = AX + \epsilon \Rightarrow X = (M-\epsilon)A^{-1}
+\end{equation}
+toimii hyvin harvoissa tilanteissa, käytännössä ei ollenkaan: riippuen kerroinmatriisista A, yhtälö \ref{heurinv} antaa yleensä käyttökelvottomia approksimaatioita. Lisäksi matriisi A ei välttämättä ole edes kääntyvä! Muun muassa näiden syiden vuoksi tarvitsemme toisia lähestymiskeinoja. Bayesin tilastotiede antaa tähän hyvät eväät, ja voimme soveltaa sen oppeja inversio-ongelmien ratkaisuun.
+
+\section{Siirtyminen Bayesin inversioon}
+
+Otetaan lähtökohdaksi edellisessä kappaleessa esitelty lineaarinen inversio-ongelma \ref{lininv}. Huomaamme, että mallissa esiintyvä mittausdata $M$ on satunnainen yhtälössä esiintyvän melun myötä, ja sen tiheysfunktio saadaan esitettyä melun $\epsilon$ tiheysfunktion avulla:
+\begin{align*}
+\pi_{M|X}(m|x) &= \pi_{M|X}(Ax+\epsilon|x) \\
+&= \pi_{\epsilon}(Ax-m) \\
+&\propto \exp(-\frac{1}{2}(Ax-m)^{\prime}(\Gamma)^{-1}(Ax-m)) \\
+&= \exp(-\frac{1}{2\Gamma}{\Vert Ax-m \Vert}^2),
+\end{align*}
+missä merkintä ${\Vert a \Vert}^2$ tarkoittaa vektorin $a\in\R^n$ normia ja merkintä $A^\prime$ matriisin $A$ transpoosimatriisia. 
+
+Inversio-ongelmien ratkaisuun tarvitsemme jonkin prioritodennäköisyyden $X$:lle, eli jonkinlaisen alkutiedon testattavan asian tilasta. Prioritodennäköisyys riippuu hyvin paljon vallitsevasta testausasetelmasta ja testattavasta asiasta, mutta jos oletamme prioritodennäköisyyden olevan olemassa ja merkitsemme sitä $\pi_X(x)$:llä, saamme kaavan \ref{bayespropto} mukaisesti $X$:n posterioritodennäköisyydeksi
+\begin{equation}
+p_{post}(x|m) := \pi_{X|M}(x|m) \propto \pi_{M|X}(m|x)\pi_{X}(x).
+\end{equation}
+
+Tämä epänormalisoitu posterioritodennäköisyys ja sen CM-estimaatti ratkaistaan numeerisesti havaitusta datasta $M=m$, ja tähän käytämme Metropolis-Hastings -nimistä Monte Carlo Markov Chain -algoritmiä. Seuraavassa kappaleessa pohjustan tämän niin kutsutun MHMCMC-algoritminkäytön, ja priorijakaumien valinnasta ja tarkemmista käytännön operaatioista kerron luvussa \ref{parsa}.
+
+\chapter{Metropolis-Hastings-algoritmi}\label{mh}
+
+Lineaarisen inversio-ongelman ratkaisu posteriorijakaumana ei ole kovin hyödyllinen, mikäli emme voi käsitellä tulosta jotenkin. Sen sijaan, että konstruoisimme posteriorijakauman tietyissä pisteissä, käytämme posteriorijakauman omaa tiheyttä arpoaksemme haluamamme pistekokoelman. Tämä arpominen suoritetaan Monte Carlo Markov Chain -nimisellä sampleritekniikalla, josta hyödynnämme erikoistapausta Metropolis-Hastings-algoritmi. Ennen simulointiin perehtymistä tarvitsemme perustiedot Markovin ketjuista.
+
+\section{Markovin ketjuista}
+
+Aloitetaan Markovin ketjujen perusominaisuuksista. Olkoon $S$ numeroituva joukko ja todennäköisyysavaruus kuten luvusssa \ref{tn}. Joukko $S$ on ketjun \emph{tilajoukko}, ja sen alkiot $i\in S$ ovat ketjun \emph{tiloja}. Lisäksi olkoon $\	pi = \lbrace \pi_i : i\in S\rbrace$, jolle pätee kaikilla $i\in S$ \: $0\leqslant \pi_i\leqslant$ ja $\sum_{i} \pi_i= 1$.
+
+\begin{maar}
+Olkoon $\lbrace X_{i} \rbrace^{\infty}_{n=1}$ jono satunnaismuuttujia. Jono on \emph{Markovin ketju}, jos se toteuttaa ehdon
+\begin{equation}
+P(B_{n+1}|x_{n},...,x_1) = P(B_{n+1}|x_{n}).
+\end{equation}
+\end{maar}
+
+Monissa materiaaleissa tätä ominaisuutta kutsutaan \emph{Markovin ominaisuudeksi}, ja kuvataan sanomalla että Markovin ketjuilla tulevaisuus riippuu menneisyydestä vain nykyhetken kautta. Jatkuvissa tiloissa ketjun siirtymätodennäköisyyksiä kuvataan siirtymäytimellä.
+
+\begin{maar}
+Kuvausta $K: \R^n \times \mathcal{B} \rightarrow [0,1]$ 	kutsutaan transitioytimeksi, jos 
+\begin{enumerate}
+\item kaikille $B\in\mathcal{B}$
+kuvaus $\R^n \rightarrow [0,1]: x \mapsto K(x,B)$ on mitallinen, ja
+\item kaikille $x\in\R^n$ kuvaus $\mathcal{B} \rightarrow [0,1]: x \mapsto K(x,B)$ on todennäköisyysjakauma.
+\end{enumerate}
+\end{maar}
+
+Määriteltyämme transitioytimen, voimme määritellä Markovin ketjulle hyvin tärkeän ominaisuuden. Satunnaismuuttujajono $\lbrace X_{i} \rbrace^{\infty}_{n=1}$ on \emph{stationaarinen} tai \emph{aikahomogeeninen }Markovin ketju, jos 
+\begin{equation}
+P(B_{n+1}|x_1,...,x_n)=K(x_n, B_{n+1}).
+\end{equation}
+Stationaarisuus tarkoittaa sitä, että Markovin ketjun osien $x_n$ ja $n_{n+1}\in B$ välinen riippuvuus ei vaihtele eri ajanjaksoina.
+
+Jos $K^{(1)}(x_n,B_{n+1}) = K(x_n,B_{n+1})$, niin $k>1$ askeleen päähän ulottuva transitioydin on 
+\begin{equation}
+K^{(k)}(x_n, B_{n+k}) = P(B_{n+k} | X_n = x_n) = \int_{\R^n} K(x_{n+k-1}, B_{n+k})K^{(k-1)}(x_n,dx_{n+k-1}).
+\end{equation}.
+
+\begin{maar}
+Todennäköisyysmittaa $P$ kutsutaan ytimen $K(x_n,B_{n+1})$ \emph{invarianttimitaksi}, jos 
+\begin{equation}
+PK=P.
+\end{equation}
+Tämä tarkoittaa lyhykäisyydessään sitä, että satunnaismuuttujan $X_n$ jakauma ennen tilasta $n$ siirtymistä tilaan $n+1$ on sama kuin satunnaismuuttujan $X_{n+1}$ jakauma tilasiirtymisen jälkeen.
+\end{maar}
+Siirtyäksemme MCMC-menetelmiin, tarvitsemme vielä hieman transitioytimiin ja Markovin ketjuihin liittyviä määritelmiä. Esittelen ne, jonka jälkeen voimme siirtyä Metropolis-Hastings-algoritmin pyörittämiseen.
+
+\begin{maar}
+Olkoon $P$ todennäköisyysmitta. Tällöin transitioydin $P$ on \emph{irredusoituva} todennäköisyysmitan $P$ suhteen, jos jokaiselle $x\in\R^n$, $B\in\mathcal{B}$, $P(B)>0$ on olemassa sellainen kokonaisluku $k$, jolle $P^{(k)}(x,B)>0$.
+
+Transitioytimen $K$ irredusoituvuus kertoo sen, että ketjun alkupisteestä huolimatta ytimen $K$ luoma Markovin ketju käy jokaisen läpi positiivisen todennäköisyyden omaavan tilan. 
+\end{maar}
+
+\begin{maar}
+Jos ydin $K$ on irredusoituva, 	sanomme että se on \emph{periodinen}, jos jollekin $m\geqslant 2$ on olemassa joukko erillisiä joukkoja $\lbrace E_1,...,E_m \rbrace \subset \R^n$, $E_i \neq \emptyset$ kaikille $i\in 1,...,m$ siten, että kaikille $j=1,...m$ ja $x\in E_j$ pätee
+\begin{equation}
+K(x, E_{j+1(mod m)}) = 1.
+\end{equation}
+Vähemmän teknisesti tämä tarkoittaa, että periodinen ydin $K$ luo Markovin ketjun, joka pysyy jatkuvasti jaksollisessa kierrossa. Jos ydin $K$ ei ole periodinen, sitä kutsutaan $aperiodiseksi$.
+\end{maar}
+
+Seuraavaksi esittelen tuloksen, joka on yksi tärkeimpiä tuloksia rakentaessa MCMC-simulointiin liittyviä tekniikoita.
+
+\begin{prop}\label{sll}
+Olkoon $P$ todennäköisyysmitta, $\lbrace X_{i} \rbrace^{\infty}_{n=1}$ Markovin ketju siirtymäytimellä $K$. Oletetaan lisäksi, että $P$ on ytimen $K$ invariantti mitta, ja että $K$ on sekä aperiodinen että irredusoituva. Tällöin jokaiselle $x\in\R^n$ pätee 
+\begin{equation}
+\lim_{n\to\infty} K^{(n)}(x,B) = P(B) 
+\end{equation}
+kaikilla $B\in\mathcal{B}$, ja lisäksi kaikille jatkuvasti derivoituville funktioille $f$ pätee
+\begin{equation}
+\lim_{n\to\infty} \frac{1}{n}\sum_{i=1}^n f(X_i) = \int_{\R^n} f(x)P(dx) 
+\end{equation}
+melkein varmasti.
+\begin{proof}
+Sivuutetaan.
+\end{proof}
+\end{prop}
+Propositio \ref{sll} toimii meille Markovin ketjujen suurten lukujen lakina (SSL, \cite{Durrett}) ja se takaa sen, että tarpeeksi suurella otantamäärällä generoimamme Markovin ketju suppenee kohti järkevää posteriorijakaumaa.
+
+Nyt kun olemme esitelleet hyvin niukan pohjan Markovin ketjuille, voimme siirtyä Metropolis-Hastings-algoritmiin. 
+
+
+\section{Metropolis-Hastings}
+
+Metropolis-Hastings on algoritmi, joka on nimettty Nicholas Metropoliksen (1915-1999) ja W.K. Hastingsin (1930-2016) mukaan. Metropolis julkaisi algoritmin artikkelissa Equation of State Calculations by Fast Computing Machines (1953), ja Hastings yleisti algoritmin vuonna 1970. Metropolis-Hastings -algoritmin idea on seuraava: Oletetaan Markovin ketju pisteessä $x\in\R^n$. Tällöin
+\begin{enumerate}
+\item Pysytään pisteessä $x$ todennäköisyydellä $r(x)$, $0\leqslant r(x) < 1$, tai
+\item liikutaan pois pisteestä $x$ siirtymäytimen $R(x,y)$ mukaisesti eli pisteeseen $y$.
+\end{enumerate}  
+
+Välttääksemme epäintuitiivisien notaatioiden syvää merta oletamme, että $P$ on absoluuttisesti jatkuva, eli ekvivalentti, Lebesquen mitan suhteen. Tällöin $P(dx) = \pi(x)dx$, ja jatkamme ytimen etsimistä mitan $\pi(x)$ suhteen. 
+
+Koska ketjulla on kaksi vaihtoehtoa liikkumisen suhteen, voimme jakaa edellisessä kappaleessa esitellyn siirtymäytimen $K(x,B)$ kahteen osaan:
+\begin{equation}
+K(x,B) = \int_B R(x,y)dy + r(x)\mathbf{1}_B(x),
+\end{equation}
+missä $\mathbf{1}_B(x)$ on Borel-joukon $B$ indikaattorifunktio. Indikaattorifunktio esittää tilanteen, jossa $x\notin B$. Tällöin ainoa tapa, jolla tila saavuttaa $B$:n, on siirtymällä.
+
+Siirtymäytimen määritelmän mukaan $K(x,\R^n)=1$, ja tästä seuraa
+\begin{align*}
+K(x,B) &= \int_B R(x,y)dy + r(x)\mathbf{1}_B(x) \\
+\Leftrightarrow r(x)\mathbf{1}_B(x) &= 1-\int_B R(x,y)dy \\
+\Rightarrow r(x) &= 1 - \int_{\R^n} R(x,y)dy.
+\end{align*}
+
+Mitan $\pi(x)$ tulee myös olla invariantti siirtymäytimen $K(x, B)$ suhteen. Tämä vaatii ominaisuuden 
+\begin{align*}
+PK(x,B)&= \int_{\R^n}\left(\int_B R(x,y)dy + r(x)\mathbf{1}_B(x) \right) \pi(x)dx \\
+& = \int_B \left(\int_{\R^n} \pi(x)R(x,y)dx + r(y)\pi(y) \right) dy \\
+& = \int_B \pi(y)dy 
+\end{align*}
+kaikille $B\in\mathcal{B}$. Toisessa yhtäsuuruudessa käytettiin Fubinin teoreemaa. Tästä seuraa, että 
+\begin{align*}
+\int_B \left(\int_{\R^n} \pi(x)R(x,y)dx + r(y)\pi(y) \right) dy &= \int_B \pi(y)dy \\
+\Rightarrow \int_{\R^n} \pi(x)R(x,y)dx + r(y)\pi(y) dy &= \pi(y) \\
+\Leftrightarrow \pi(y)(1-r(y)) = \int_{\R^n} \pi(x)R(x,y)dx.
+\end{align*}
+Kun sijoitamme tähän yhtälön ominaisuuden $r(x) = 1 - \int_{\R^n} R(x,y)dy$, invarianttimittaominaisuus saadaan muotoon
+\begin{equation}\label{tasapaino}
+\int_{\R^n} \pi(x)R(x,y)dx = \int_{\R^n} \pi(y)R(y,x)dx.
+\end{equation}
+Yhtälöä \ref{tasapaino} kutsutaan \emph{tasapainoyhtälöksi}. Rakentaessamme Metropolis-Hastings-algoritmia haluamme löytää sellaisen siirtymäytimen $R$, joka toteuttaa tasapainoyhtälön. Jos löydämme sellaisen \emph{kandidaattijakauman} $q(x,y)$, joka toteuttaa tasapainoyhtälön ehdot, on simulointi valmis, sillä silloin todennäköisyysmitta $\pi$ on invariantti kandidaattijakauman $q$ suhteen. Tällöin voidaan olettaa $r(x)=0$, ja invariantin mitan myötä ketju jää ''viimeiseen'' tilaansa. Yleensä näin ei kuitenkaan ole.
+
+Kun $q$ ei toteuta tasapainoyhtälöä, pyrimme löytämään korjaustermin $\alpha (x,y)$, ja valitaan
+\begin{equation}\label{alphaq}
+R(x,y) = \alpha(x,y)q(x,y).
+\end{equation}
+
+Mikä termin $\alpha$ tulisi olla? Tavoitteenamme oli tasapainoyhtälön pitävyys, joten haluamme sellaisen $\alpha$:n, että 
+\begin{equation}
+\alpha(x,y)\pi(x)q(x,y) = \alpha(y,x)\pi(y)q(y,x).
+\end{equation}
+Kun tasapainoyhtälö ei toteudu, oletetaan ensiksi $\pi(x)q(x,y) > \pi(y)q(y,x)$. Jos valitaan korjauskertoimiksi $\alpha(y,x)=1$ ja $\alpha(x,y)= \frac{\pi(y)q(y,x)}{\pi(x)q(x,y)} < 1$ huomataan, että tasapainoyhtälö toteutuu. Oletetaan seuraavaksi $\pi(x)q(x,y) < \pi(y)q(y,x)$, jolloin vastaavasti korjauskertoimen valinta $\alpha(x,y)=1$ ja $\alpha(y,x)= \frac{\pi(x)q(y,x)}{\pi(y)q(y,x)} < 1$  toteuttaa	 tasapainoyhtälön \ref{tasapaino}.
+
+Yhdistämällä nämä kaksi havaintoa, saamme järkeväksi korjauskertoimen valinnaksi 
+\begin{equation}
+\alpha(x,y) = \min \left\lbrace 1,\frac{\pi(y)q(y,x)}{\pi(x)q(x,y)} \right\rbrace,
+\end{equation}
+jolloin siirtymäytimeksi \ref{alphaq} on saatu järkevä, tasapainoyhtälöä lähentyvä ydin. Tällaista ydintä kutsutaan \emph{Metropolis-Hastings-ytimeksi}. Nyt olemme johtaneet Metropolis-Hastingsin algoritmin. Seuraavassa kappaleessa käytän tätä algoritmia esimerkkitapaukseen ja kerron, kuinka nämä abstraktit ehdot täyttävä algoritmi tehdään.
+
+\chapter{Reaalimaailman esimerkki}\label{parsa}
+[Korjaa MC määritelmä muuta matskua vastaavaksi....]
+Kuten edellisessä kappaleessa mainitsin, algoritmin johtaminen ei juurikaan kerro sen rakentamisesta sovelluskäyttöön. Algoritmi toimii käytännössä jotenkuten seuraavasti: Oletetaan samplekooksi $N\in\N$, ja merkitään tietyn samplekerran lukua $n\in 1,...,N.$.
+\begin{enumerate}
+\item Valitaan kohta $x_1\in\R^n$, josta aloitamme ketjun ja asetetaan $n=1$,
+\item Arvotaan $y\in\R^n$ kandidaattijakaumasta $q(x_n,y)$,
+\item Lasketaan	korjauskerroin $\alpha(x_n,y) = \frac{\pi(y)q(y,x_n)}{\pi(x_n)q(x_n,y)}$,
+\item Arvotaan $u\in[0,1]$ $Uniform(0,1)$-tasajakaumasta,
+\item Jos korjauskerroin $\alpha \geqslant u$, asetetaan $x_{n+1}=y$ ja muuten pysytään samassa pisteessä eli $x_{n+1}=x_n$,
+\item Kun $n=N$, lopetetaan algoritmi. Muuten asetetaan $n=n+1$ ja jatketaan uudestaan kohdasta 2. 
+\end{enumerate}
+Tällöin saamme $N$-pituisen vektorin $(x_1,...,x_N)$, joka on generoimamme ketju. Tämä ketju muodostaa posteriorijakauman, ja voimme tehdä tilastollista päättelyä siitä esimerkiksi edellä mainituilla CM-ja MAP-estimaateilla.
+
+\section{Testiasetelma ja priorien valinta}
+Tutkielman käytännön osassa koostamme X-ray Tomografiakuvan parsan päästä, jossa on aluksi kuvattu 180 kuvakulmaa parsasta röntgensäteellä. Muodostamme näistä inverse-radon-menetelmällä sinogrammin, jota käytämme yhtälön \ref{lininv} mukaisesti mittausdatana $M = m$. Mittausdata on siis $32\times 32$ kokoinen kuva, jota käsittelemme $1024\times 1$ kokoisena vektorina. Olemme konstruoineet mittausprosessille ominaisen matriisin $A$, ja vertaamme arvottua kandidaattia posteriorijakauman mukaisesti. 
+
+Ketjun jäsenet ovat siis 1024-pituisia vektoreita, jotka yhdessä muodostavat posteriorijakauman halutulle kuvalle. Ketju lähtee liikenteeseen kohdasta $x_1,i = 0.05$ kaikilla $i=1,...,2014$ ja kerron ketjun muodostamisesta, siihen liittyvistä parametreista ja kandidaattijakauman hienosäädöstä seuraavassa kohdassa.
+
+Toteutan tutkielman esimerkin kahdella eri priorilla, Total Variation (TV-priori) ja Gaussisella priorilla. Priorit ovat luontevia, sillä kohdekuvan voidaan olettaa käyttäytyvän likimain normaalisti, ja TV-priori soveltuu äärimmäisen hyvin lähes jokaiseen kuvagenerointiongelmaan.
+
+((Prioreista ja testistä lisää infoa haluaisin..))
+
+Allaolevissa kuvissa on epätarkennettu $50 \times 181$ kokoinen sinogrammi sekä yksi alkuperäisistä valoitetuista kuvista parsasta.
+
+\includegraphics[width=0.7\textwidth]{10ksino} \\
+\includegraphics[width=0.7\textwidth]{fullrecpng}
+
+\section{Algoritmi reaalimaailmassa}
+Alla on ote Metropolis-Hastings-algoritmista TV-priorilla. Koodi on toteutettu Matlabilla ja se on tarkoitettu havainnollistamaan algoritmin toimintaa.
+
+\lstset{language=Pascal}
+\begin{lstlisting}
+% Arvotaan uusi kandidaattijakauma kandidaattijakaumasta
+candidate = prev+sigma*randn(Npixels,1);
+% Rajataan mielenkiintoisen alueen ulkopuolelta ketju tyhjäksi
+candidate(not(mask)) = 0;
+
+    %%% Onko kandidaatti negatiivinen?
+    candidate( candidate < 0) = 0;
+   
+% TV PRIOR ja siitä muodostettu posteriori
+osoittaja = loglike(candidate, A, noiselevel, m) + (...)
+    logTV(candidate, beta, nrow, ncol);
+nimittaja = loglike(prev, A, noiselevel, m) + (...)
+    logTV(candidate, beta, nrow, ncol);
+
+% Kandidaatin hyväksyminen tai hylkääminen
+ratio = min(1,exp(osoittaja-nimittaja));
+if rand < ratio && min(candidate >= -0.01)
+    chain(:,iii)=candidate;
+    accnum = accnum+1;
+end
+
+\end{lstlisting}
+\section{Tulokset}
+((Yleiset tulokset. Tähän vertailua priorien välillä)) 
+\subsection{TV priori ja CM-estimaatti}
+((CM-estimaatilla laskettu 32x32 kuva, kuva Markovin ketjun muodostamisesta ja muuta?))
+\subsection{Gaussinen priori ja MAP-estimaatti}
+((MAP-estimaatilla laskettu kuva, Markovin ketju ja jos muuta. Tämä kohta vain, jos löydän työn laajuuteen sopivan keinon maksimoida posteriorijakaumaa analyyttisesti. Muuten teen Gausiselle priorillekin CM-estimaatin.))
+\begin{thebibliography}{9}
+
+\bibitem{Tuo}
+Pekka Tuominen: Todennäköisyyslaskenta I, 5.\ painos, Limes ry, 2000.
+
+\bibitem{KaiSom}
+Jari P. Kaipio ja Erkki Somersalo: Computational and Statistical Methods for Inverse Problems, Springer, 1.4.2004.
+
+\bibitem{CalSom}
+Daniela Calvetti ja Erkki Somersalo: Introduction to Bayesian Scientific Computing, 2.\ painos, Springer, 2000.
+
+\bibitem{Durrett}
+Rick Durrett: Probability: Theory and Examples, 4.\ painos, Cambridge, 2010.
+
+\bibitem{Dean}
+Dean L. Isaacson ja Richard W. Madsen: Markov Chains Theory and Applications,
+Wiley, 1976.
+
+\bibitem{Siltanen}
+Jennifer L. Mueller ja Samuli Siltanen: Linear and Nonlinear Inverse Problems with Practical Applications, http://dx.doi.org/10.1137/1.9781611972344
+
+\end{thebibliography}
+
+
+\end{document}
